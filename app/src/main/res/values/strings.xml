@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">WalkingSynth</string>
+    <string name="app_name">PaceBuddy</string>
     <string name="stop_btn_text">STOP</string>
     <string name="start_btn_text">START</string>
 
