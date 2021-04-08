@@ -1,6 +1,6 @@
-#PaceBuddy
+# PaceBuddy #
 
-##Installation instructions
+## Installation instructions ##
 Compile and run on phone
 
 Make sure audio files are in /Internal storage/Android/data/com.dobi.walkingsynth/files/Music/kick_80.wav,
