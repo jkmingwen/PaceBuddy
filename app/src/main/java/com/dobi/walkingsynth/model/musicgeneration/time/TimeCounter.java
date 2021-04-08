@@ -1,6 +1,6 @@
 package com.dobi.walkingsynth.model.musicgeneration.time;
 
-import android.support.annotation.VisibleForTesting;
+import androidx.annotation.VisibleForTesting;
 import android.util.Log;
 import android.widget.TextView;
 
@@ -50,7 +50,7 @@ public class TimeCounter {
 
                     String stringTime = convertMillisecondsToHumanReadable(tick);
 
-                    Log.d(TAG, "Observable interval subscription: " + stringTime);
+//                    Log.d(TAG, "Observable interval subscription: " + stringTime);
 
                     if (textView != null)
                         textView.setText(stringTime);

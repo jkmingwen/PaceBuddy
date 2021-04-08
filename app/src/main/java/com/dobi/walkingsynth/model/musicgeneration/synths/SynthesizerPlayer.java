@@ -95,7 +95,7 @@ public class SynthesizerPlayer extends CsoundPlayer {
 
     @Override
     public void onStep(int step) {
-        Log.d(TAG, "onStepEvent(): step: " + step + " interval:  " + interval);
+//        Log.d(TAG, "onStepEvent(): step: " + step + " interval:  " + interval);
 
         if (step > 0 && lastStep != step && step % interval == 0) {
             Log.d(TAG, "Playing random score.");
@@ -107,7 +107,7 @@ public class SynthesizerPlayer extends CsoundPlayer {
 
     @Override
     public void invalidate(int position) {
-        Log.d(TAG, "invalidateTempo(): " + position);
+//        Log.d(TAG, "invalidateTempo(): " + position);
         if ((position + 8) % 8 == 0) {
             playRhythmScore(position);
         }

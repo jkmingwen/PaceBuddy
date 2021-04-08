@@ -119,7 +119,7 @@ public class AchartEngineGraphView implements GraphView {
 
         rewriteAccelerometerPast(eventTime, accelerometerValue);
 
-        Log.d(TAG, "invalidateTempo() at time: " + eventTime + " accelValue: " + accelerometerValue + " thresh: " + currentThreshold);
+//        Log.d(TAG, "invalidateTempo() at time: " + eventTime + " accelValue: " + accelerometerValue + " thresh: " + currentThreshold);
 
         accelerometerSeries.add(eventTime, padValue(accelerometerValue));
         if (pointCount == MAX_POINTS)

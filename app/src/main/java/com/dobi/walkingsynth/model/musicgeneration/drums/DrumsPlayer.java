@@ -75,7 +75,7 @@ public class DrumsPlayer extends CsoundPlayer {
 
     @Override
     public void onStep(int step) {
-        Log.d(TAG, "invalidateTempo() steps: " + step + " interval: " + interval);
+//        Log.d(TAG, "invalidateTempo() steps: " + step + " interval: " + interval);
 
         if (step + 1 % (interval + 1) == 0) {
             mDrumsSequencer.randomizeHiHat();
@@ -84,7 +84,7 @@ public class DrumsPlayer extends CsoundPlayer {
 
     @Override
     public void invalidate(int position) {
-        Log.d(TAG, "invalidateTempo() position: " + position);
+//        Log.d(TAG, "invalidateTempo() position: " + position);
         playAllSequences(mDrumsSequencer.getSequences());
     }
 

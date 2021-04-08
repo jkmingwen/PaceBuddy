@@ -141,7 +141,7 @@ public class TempoAnalyzer implements AccelerometerManager.OnStepListener {
 
                         invalidateListeners();
 
-                        Log.d(TAG, "Bar position: " + currentPosition + " Sleep for interval: " + interPositionInterval);
+//                        Log.d(TAG, "Bar position: " + currentPosition + " Sleep for interval: " + interPositionInterval);
                     }
                 } catch (InterruptedException e) {
                     e.printStackTrace();

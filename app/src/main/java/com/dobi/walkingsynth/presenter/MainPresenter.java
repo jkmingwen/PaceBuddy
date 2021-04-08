@@ -12,6 +12,8 @@ import com.dobi.walkingsynth.model.musicgeneration.utils.Note;
 import com.dobi.walkingsynth.model.musicgeneration.utils.Scale;
 import com.dobi.walkingsynth.model.stepdetection.AccelerometerManager;
 
+import java.util.ArrayList;
+
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 
@@ -51,6 +53,8 @@ public class MainPresenter implements ApplicationMvp.Presenter, AccelerometerMan
     private double threshold;
 
     private Disposable thresholdDisposable;
+
+    private ArrayList<Double> stepOnsets = new ArrayList<>();
 
     public MainPresenter(SharedPreferences sharedPreferences,
                          AccelerometerManager accelerometerManager,
@@ -214,6 +218,7 @@ public class MainPresenter implements ApplicationMvp.Presenter, AccelerometerMan
     @Override
     public void onStepEvent(long milliseconds, int stepsCount) {
         this.steps = stepsCount;
+        stepOnsets.add((double)milliseconds);
 
         if (view != null) {
             view.showSteps(steps);
@@ -230,4 +235,9 @@ public class MainPresenter implements ApplicationMvp.Presenter, AccelerometerMan
         if (view != null)
             view.showTempo(tempo);
     }
+
+    @Override
+    public ArrayList<Double> getStepOnsets() {
+        return stepOnsets;
+    };
 }

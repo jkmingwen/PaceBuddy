@@ -109,7 +109,7 @@ public class AccelerometerManager {
     }
 
     /**
-     * Gets event time. http://stackoverflow.com/questions/5500765/accelerometer-sensorevent-timestamp
+     * Gets event time in unix epoch milliseconds. http://stackoverflow.com/questions/5500765/accelerometer-sensorevent-timestamp
      */
     private long getTimestamp(SensorEvent event) {
         return (new Date()).getTime() + (event.timestamp - System.nanoTime()) / 1000000L;

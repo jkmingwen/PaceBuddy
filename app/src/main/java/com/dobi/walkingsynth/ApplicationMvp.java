@@ -5,6 +5,8 @@ import android.widget.TextView;
 import com.dobi.walkingsynth.model.musicgeneration.utils.Note;
 import com.dobi.walkingsynth.model.musicgeneration.utils.Scale;
 
+import java.util.ArrayList;
+
 import io.reactivex.Observable;
 
 public interface ApplicationMvp {
@@ -55,6 +57,8 @@ public interface ApplicationMvp {
         int getProgressFromThreshold();
 
         void setThresholdProgressObservable(Observable<Integer> observable);
+
+        ArrayList<Double> getStepOnsets();
     }
 
     interface Model {

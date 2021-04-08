@@ -40,7 +40,6 @@ public class CsoundAudioPlayer extends CsoundBase implements AudioPlayer {
 
     @Override
     public void start() {
-        startCSound();
     }
 
     @Override

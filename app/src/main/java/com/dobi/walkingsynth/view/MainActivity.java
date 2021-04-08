@@ -1,16 +1,25 @@
 package com.dobi.walkingsynth.view;
 
+import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
+import android.os.Environment;
+import android.provider.MediaStore;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.loader.content.CursorLoader;
 
 import com.dobi.walkingsynth.ApplicationMvp;
 import com.dobi.walkingsynth.MainApplication;
@@ -18,13 +27,28 @@ import com.dobi.walkingsynth.R;
 import com.dobi.walkingsynth.model.musicgeneration.utils.Note;
 import com.dobi.walkingsynth.model.musicgeneration.utils.Scale;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.Locale;
 
 import javax.inject.Inject;
 
+import be.tarsos.dsp.AudioDispatcher;
+import be.tarsos.dsp.AudioProcessor;
+import be.tarsos.dsp.io.TarsosDSPAudioFormat;
+import be.tarsos.dsp.io.UniversalAudioInputStream;
+import be.tarsos.dsp.io.android.AndroidAudioPlayer;
+import be.tarsos.dsp.io.android.AndroidFFMPEGLocator;
+import be.tarsos.dsp.onsets.ComplexOnsetDetector;
+import be.tarsos.dsp.onsets.OnsetHandler;
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import io.reactivex.Observable;
+
+import static java.lang.Long.min;
 
 /**
  * TODO: refactor to MVP
@@ -32,7 +56,33 @@ import io.reactivex.Observable;
  * TODO: use Dagger2 a lot
  * TODO: refactor Csound and accelerometer to use RxJava
  */
-public class MainActivity extends AppCompatActivity implements ApplicationMvp.View {
+public class  MainActivity extends AppCompatActivity implements ApplicationMvp.View {
+
+    TarsosDSPAudioFormat tarsosDSPAudioFormat;
+    AudioDispatcher dispatcher;
+    File file;
+    Uri fileUri;
+    int PICKFILE_RESULT_CODE = 1;
+    TextView tempoTextView2;
+    TextView silenceThresholdTextView;
+    TextView thresholdTextView;
+    TextView onsetTextView;
+    Button playButton;
+    Button chooseFileButton;
+    boolean isPlaying = false;
+    String filename = "kick_100.wav"; // default audio track // TODO show warning when track not chosen
+    String selectedFilePath;
+    SeekBar silenceThresholdSlider;
+    SeekBar peakThresholdSlider;
+    double silenceThreshold = -70;
+    double peakThreshold = 0.3; // same as default for ComplexOnsetDetector
+    double songStartTime = 0;
+    ArrayList<Double> beatOnsets = new ArrayList<>();
+    ArrayList<Double> stepOnsets;
+
+
+    String pathToMusic;
+    Uri uriMusic;
 
     private static final String TAG = MainActivity.class.getSimpleName();
 
@@ -90,6 +140,91 @@ public class MainActivity extends AppCompatActivity implements ApplicationMvp.Vi
         presenter.initialize();
 
         graphFrameLayout.addView(accelerometerGraph.createView(this));
+
+        // select file to be recorded and played
+        File sdCard = Environment.getExternalStorageDirectory();
+        file = new File(sdCard, filename);
+        Log.println(Log.DEBUG, "preload file path: ", file.getAbsolutePath()); // /storage/emulated/0/recorded_sound.wav
+        /*
+        filePath = file.getAbsolutePath();
+        Log.e("MainActivity", "Save file path :" + filePath);
+        */
+        new AndroidFFMPEGLocator(this);
+
+        // define audio format
+        tarsosDSPAudioFormat = new TarsosDSPAudioFormat(TarsosDSPAudioFormat.Encoding.PCM_SIGNED,
+                44100, // sample rate
+                2 * 8, // sample size (in bits)
+                1, // no. of channels
+                2 * 1, // frame size
+                44100, // frame rate
+                ByteOrder.BIG_ENDIAN.equals(ByteOrder.nativeOrder()));
+
+        onsetTextView = (TextView) findViewById(R.id.onsetTextView);
+        tempoTextView2 = (TextView) findViewById(R.id.tempoTextView2);
+        silenceThresholdTextView = (TextView) findViewById(R.id.silenceThresholdTextView);
+        thresholdTextView = (TextView) findViewById(R.id.thresholdTextView);
+        playButton = (Button) findViewById(R.id.playButton);
+        chooseFileButton = (Button) findViewById(R.id.chooseFileButton);
+        silenceThresholdSlider = (SeekBar) findViewById(R.id.silenceThresholdSlider);
+        peakThresholdSlider = (SeekBar) findViewById(R.id.peakThresholdSlider);
+
+        silenceThresholdTextView.setText("Silence threshold: " + silenceThreshold + "dB");
+        thresholdTextView.setText("Peak threshold: " + String.format("%.1f", peakThreshold));
+
+        playButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!isPlaying) {
+                    playAudio();
+                    isPlaying = true;
+                    playButton.setText("Stop");
+                } else {
+                    stopPlaying();
+                    isPlaying = false;
+                    playButton.setText("Play");
+                }
+            }
+        });
+
+        silenceThresholdSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                silenceThreshold = (double) progress;
+                silenceThresholdTextView.setText("Silence threshold: " + progress + "dB");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+
+        peakThresholdSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                peakThreshold = (double) progress / 10;
+                thresholdTextView.setText("Peak threshold: " + String.format("%.1f", peakThreshold));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+
+        chooseFileButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Intent chooseFile = new Intent(Intent.ACTION_GET_CONTENT);
+                chooseFile.setType("*/*");
+                chooseFile = Intent.createChooser(chooseFile, "Choose a file");
+                startActivityForResult(chooseFile, PICKFILE_RESULT_CODE);
+            }
+
+        });
     }
 
     private void initializeThresholdSeekBar() {
@@ -167,6 +302,7 @@ public class MainActivity extends AppCompatActivity implements ApplicationMvp.Vi
         Log.d(TAG, "onStop()");
         presenter.onStop();
         super.onStop();
+        releaseDispatcher();
     }
 
     @Override
@@ -243,4 +379,145 @@ public class MainActivity extends AppCompatActivity implements ApplicationMvp.Vi
     public TextView getTimeView() {
         return timeTextView;
     }
+
+    public void playAudio() {
+        try {
+            releaseDispatcher();
+            // re-read file
+            File sdCard = getExternalFilesDir(Environment.DIRECTORY_MUSIC);
+            file = new File(sdCard, filename);
+            Log.println(Log.DEBUG, "playing file path: ", file.getAbsolutePath());
+            FileInputStream fileInputStream = new FileInputStream(file);
+            dispatcher = new AudioDispatcher(new UniversalAudioInputStream(fileInputStream,
+                    tarsosDSPAudioFormat),
+                    2048,
+                    1024);
+
+            AudioProcessor playerProcessor = new AndroidAudioPlayer(tarsosDSPAudioFormat,
+                    4096,
+                    0);
+
+            dispatcher.addAudioProcessor(playerProcessor);
+            // Onset detection processing
+            OnsetHandler onsetHandler = new OnsetHandler() {
+                double prevOnsetTime = -1;
+                double prevTempo = 0;
+                @Override
+                public void handleOnset(double v, double v1) {
+                    final double onsetTime = v; // time of onset (s) from start of audio file
+                    final double onsetAbsoluteTime = songStartTime + (v * 1000);
+                    final double sValue = v1; // how prominent
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Log.println(Log.DEBUG, "onset time: ", Double.toString(onsetTime));
+                            Log.println(Log.DEBUG, "unix epoch millisec:", String.format("%.12f", onsetAbsoluteTime));
+                            if(isPlaying){
+                                beatOnsets.add(onsetAbsoluteTime);
+                            }
+                            Log.println(Log.DEBUG, "onset salience: ", Double.toString(sValue));
+                            onsetTextView.setText(String.format("onset time: %.2f", onsetTime));
+                            if (prevOnsetTime == -1 || prevOnsetTime >= onsetTime) { // account for looping audio
+                                Log.println(Log.DEBUG, "prevOnset: ", Double.toString(prevOnsetTime));
+                                prevOnsetTime = onsetTime;
+                            } else if (prevOnsetTime != onsetTime) {
+                                // estimate tempo
+                                double currentTempo = 60/(onsetTime - prevOnsetTime);
+                                double estTempo = currentTempo;
+                                if (prevTempo != 0) { // take average to stabilise readings
+                                    estTempo = (estTempo + prevTempo) / 2;
+                                    prevTempo = estTempo;
+                                } else {
+                                    prevTempo = estTempo;
+                                }
+                                tempoTextView2.setText(String.format("%.1f", estTempo));
+                                prevOnsetTime = onsetTime;
+                            }
+                        }
+                    });
+                }
+            };
+
+            double minOnsetInterval = 0.004;
+            ComplexOnsetDetector complexOnsetDetector = new ComplexOnsetDetector(
+                    2048, // size of FFT
+                    peakThreshold,
+                    minOnsetInterval,
+                    silenceThreshold
+            );
+//            BeatRootOnsetEventHandler beatHandler = new BeatRootOnsetEventHandler();
+            complexOnsetDetector.setHandler(onsetHandler);
+
+            dispatcher.addAudioProcessor(complexOnsetDetector);
+            // execute dispatcher by thread
+            Thread audioThread = new Thread(dispatcher, "Audio Thread");
+            songStartTime = (new Date()).getTime();
+            audioThread.start();
+
+
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void stopPlaying() {
+        Log.println(Log.DEBUG, "HI", "HI");
+        stepOnsets = presenter.getStepOnsets();
+        for(int i = 0; i < min(stepOnsets.size(), beatOnsets.size()); i++) {
+            Log.println(Log.DEBUG, "beatOnsets # " + i, String.format("%.12f", beatOnsets.get(i)));
+            Log.println(Log.DEBUG, "stepOnsets # " + i, String.format("%.12f", stepOnsets.get(i)));
+        }
+        releaseDispatcher();
+        beatOnsets.clear();
+        stepOnsets.clear();
+    }
+
+    public void releaseDispatcher() {
+        if (dispatcher != null) {
+            if (!dispatcher.isStopped()) {
+                dispatcher.stop();
+            }
+            dispatcher = null;
+        }
+    }
+
+    // TODO implement file picker (currently doesn't return the actual path to the file when run on Samsung Galaxy Edge S7)
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        switch (requestCode) {
+            case 1:
+                if (resultCode == -1) {
+                    fileUri = data.getData();
+                    selectedFilePath = fileUri.getPath();
+                    // select only child path
+                    int cut = selectedFilePath.lastIndexOf('/');
+                    if (cut != -1) {
+                        selectedFilePath = selectedFilePath.substring(cut + 1);
+                    }
+                    // workaround for reading local files from physical device
+//                    if (selectedFilePath.equals("/document/audio:437")) {
+//                        filename = "kick_80.wav";
+//                    } else if (selectedFilePath.equals("/document/audio:438")) {
+//                        filename = "kick_100.wav";
+//                    } else if (selectedFilePath.equals("/document/audio:436")) {
+//                        filename = "kick_120.wav";
+//                    }
+                    filename = selectedFilePath;
+                    Log.println(Log.DEBUG, "selected file path: ", selectedFilePath);
+                }
+                break;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private String getRealPathFromURI(Uri contentUri) { // code block from some stackoverflow comment --- didn't work
+        String[] proj = { MediaStore.Images.Media.DATA };
+        CursorLoader loader = new CursorLoader(getApplicationContext(), contentUri, proj, null, null, null);
+        Cursor cursor = loader.loadInBackground();
+        int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+        cursor.moveToFirst();
+        return cursor.getString(column_index);
+    }
+
 }
