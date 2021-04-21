@@ -3,22 +3,30 @@ package com.dobi.walkingsynth.view;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup.LayoutParams;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.RequiresApi;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import androidx.loader.content.CursorLoader;
 
 import com.dobi.walkingsynth.ApplicationMvp;
@@ -50,6 +58,7 @@ import io.reactivex.Observable;
 
 import static java.lang.Long.min;
 
+
 /**
  * TODO: refactor to MVP
  * TODO: create view abstractions in order to separate from implementations
@@ -67,6 +76,7 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
     TextView silenceThresholdTextView;
     TextView thresholdTextView;
     TextView onsetTextView;
+    TextView resultTextView;
     Button playButton;
     Button chooseFileButton;
     boolean isPlaying = false;
@@ -79,6 +89,8 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
     double songStartTime = 0;
     ArrayList<Double> beatOnsets = new ArrayList<>();
     ArrayList<Double> stepOnsets;
+
+    private PopupWindow mPopupWindow;
 
 
     String pathToMusic;
@@ -114,6 +126,9 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
 
     @BindView(R.id.threshold_seek_bar)
     SeekBar thresholdSeekBar;
+
+    @BindView(R.id.activity_main_layout)
+    LinearLayout activityMainLayout;
 
     @Inject
     GraphView accelerometerGraph;
@@ -173,6 +188,7 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
         thresholdTextView.setText("Peak threshold: " + String.format("%.1f", peakThreshold));
 
         playButton.setOnClickListener(new View.OnClickListener() {
+            @RequiresApi(api = Build.VERSION_CODES.N)
             @Override
             public void onClick(View v) {
                 if (!isPlaying) {
@@ -180,7 +196,7 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
                     isPlaying = true;
                     playButton.setText("Stop");
                 } else {
-                    stopPlaying();
+                    stopPlaying(v);
                     isPlaying = false;
                     playButton.setText("Play");
                 }
@@ -460,13 +476,15 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
         }
     }
 
-    public void stopPlaying() {
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    public void stopPlaying(View v) {
         Log.println(Log.DEBUG, "HI", "HI");
         stepOnsets = presenter.getStepOnsets();
         for(int i = 0; i < min(stepOnsets.size(), beatOnsets.size()); i++) {
             Log.println(Log.DEBUG, "beatOnsets # " + i, String.format("%.12f", beatOnsets.get(i)));
             Log.println(Log.DEBUG, "stepOnsets # " + i, String.format("%.12f", stepOnsets.get(i)));
         }
+        triggerPopup(v, beatOnsets, stepOnsets);
         releaseDispatcher();
         beatOnsets.clear();
         stepOnsets.clear();
@@ -518,6 +536,162 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
         int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
         cursor.moveToFirst();
         return cursor.getString(column_index);
+    }
+
+    public void triggerPopup(View view, ArrayList<Double> beatOnsets, ArrayList<Double> stepOnsets){
+        // Initialize a new instance of LayoutInflater service
+        LayoutInflater inflater = (LayoutInflater) getApplicationContext().getSystemService(LAYOUT_INFLATER_SERVICE);
+
+        // Inflate the custom layout/view
+        View customView = inflater.inflate(R.layout.popup_window,null);
+
+                /*
+                    public PopupWindow (View contentView, int width, int height)
+                        Create a new non focusable popup window which can display the contentView.
+                        The dimension of the window must be passed to this constructor.
+
+                        The popup does not provide any background. This should be handled by
+                        the content view.
+
+                    Parameters
+                        contentView : the popup's content
+                        width : the popup's width
+                        height : the popup's height
+                */
+        // Initialize a new instance of popup window
+        mPopupWindow = new PopupWindow(
+                customView,
+                LayoutParams.WRAP_CONTENT,
+                LayoutParams.WRAP_CONTENT
+        );
+
+        ((TextView)mPopupWindow.getContentView().findViewById(R.id.resultTextView)).setText(calculateResults(stepOnsets, beatOnsets));
+        // Set an elevation value for popup window
+        // Call requires API level 21
+        if(Build.VERSION.SDK_INT>=21){
+            mPopupWindow.setElevation(5.0f);
+        }
+
+        // Get a reference for the custom view close button
+        ImageButton closeButton = (ImageButton) customView.findViewById(R.id.ib_close);
+
+        // Set a click listener for the popup window close button
+        closeButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                // Dismiss the popup window
+                mPopupWindow.dismiss();
+            }
+        });
+
+                /*
+                    public void showAtLocation (View parent, int gravity, int x, int y)
+                        Display the content view in a popup window at the specified location. If the
+                        popup window cannot fit on screen, it will be clipped.
+                        Learn WindowManager.LayoutParams for more information on how gravity and the x
+                        and y parameters are related. Specifying a gravity of NO_GRAVITY is similar
+                        to specifying Gravity.LEFT | Gravity.TOP.
+
+                    Parameters
+                        parent : a parent view to get the getWindowToken() token from
+                        gravity : the gravity which controls the placement of the popup window
+                        x : the popup's x location offset
+                        y : the popup's y location offset
+                */
+        // Finally, show the popup window at the center location of root relative layout
+        mPopupWindow.showAtLocation(activityMainLayout, Gravity.CENTER,0,0);
+    }
+    public String calculateResults(ArrayList<Double> stepOnsets, ArrayList<Double> beatOnsets){
+//        alignment of first step and beat to account for latency issues
+        double diff = Math.abs(stepOnsets.get(0) - beatOnsets.get(0));
+        for(int k = 0; k < stepOnsets.size(); k++) {
+            stepOnsets.set(k, stepOnsets.get(k) - diff);
+        }
+
+//        find first beatOnset closest to step
+        int firstOnset = 0;
+        for(int j = 0; j < beatOnsets.size(); j++){
+            if(beatOnsets.get(j) > stepOnsets.get(0)){
+                firstOnset = j-1;
+                break;
+            }
+        }
+        int currentOnset = firstOnset;
+        double total = 0;
+        for(int i = 0; i < stepOnsets.size(); i++){
+
+            Double step = stepOnsets.get(i);
+            if(currentOnset < beatOnsets.size()) {
+                Double beatBeforeTimestamp = beatOnsets.get(currentOnset);
+                Double beatAfterTimestamp = beatOnsets.get(currentOnset + 1);
+                while (!(step >= beatBeforeTimestamp && step <= beatAfterTimestamp) && currentOnset + 1< beatOnsets.size() - 1) {
+
+                    currentOnset += 1;
+                    if (currentOnset + 1 >= beatOnsets.size()) {
+                        ArrayList<Double> stepIntervals = new ArrayList<>();
+                        for (int l = 0; l < stepOnsets.size() - 1; l++) {
+                            stepIntervals.add((stepOnsets.get(l + 1) - stepOnsets.get(l)));
+                        }
+                        Double totalAvg = total / stepOnsets.size();
+                        Double stdDev = sd(stepIntervals);
+                        Double mean = mean(stepIntervals);
+                        Double cv = (stdDev / mean) * 100;
+                        return String.format("Score: %.2f%%\n CV: %.2f", totalAvg, cv);
+
+                    }
+                    beatBeforeTimestamp = beatOnsets.get(currentOnset);
+                    beatAfterTimestamp = beatOnsets.get(currentOnset + 1);
+                    double score = new Synchro(step, beatBeforeTimestamp, beatAfterTimestamp).calculateScore();
+                    total += score;
+                    Log.println(Log.DEBUG, "score: ", Double.toString(score));
+                }
+            }
+        }
+        ArrayList<Double> stepIntervals = new ArrayList<>();
+        for(int l = 0; l < stepOnsets.size() - 1; l++){
+            stepIntervals.add(stepOnsets.get(l + 1) - stepOnsets.get(l));
+        }
+        Double totalAvg = total/stepOnsets.size();
+        Double stdDev = sd(stepIntervals);
+        Double mean = mean(stepIntervals);
+        Double cv = (stdDev / mean )* 100;
+        return String.format("Score: %.2f%%\n CV: %.2f" , totalAvg, cv);
+    }
+    public static double mean (ArrayList<Double> table)
+    {
+        int total = 0;
+
+        for ( int i= 0;i < table.size(); i++)
+        {
+            double currentNum = table.get(i);
+            total+= currentNum;
+        }
+        return total/table.size();
+    }
+
+
+    public static double sd (ArrayList<Double> table)
+    {
+        // Step 1:
+        double mean = mean(table);
+        double temp = 0;
+
+        for (int i = 0; i < table.size(); i++)
+        {
+            double val = table.get(i);
+
+            // Step 2:
+            double squrDiffToMean = Math.pow(val - mean, 2);
+
+            // Step 3:
+            temp += squrDiffToMean;
+        }
+
+        // Step 4:
+        double meanOfDiffs = (double) temp / (double) (table.size());
+
+        // Step 5:
+        return Math.sqrt(meanOfDiffs);
     }
 
 }

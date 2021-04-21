@@ -1,3 +1,7 @@
+package com.dobi.walkingsynth.view;
+
+import android.util.Log;
+
 import java.util.*;
 import java.text.DecimalFormat;
 
@@ -54,8 +58,12 @@ public class Synchro {
             output = 1;
         }
 
-      DecimalFormat df = new DecimalFormat("#.##");      
+      DecimalFormat df = new DecimalFormat("#.##");
+      Log.println(Log.DEBUG, "stepTime: ", Double.toString(stepTime));
+        Log.println(Log.DEBUG, "beforeTime: ", Double.toString(firstBeatBeforeStep));
+        Log.println(Log.DEBUG, "afterTime: ", Double.toString(firstBeatAfterStep));
       output = Double.valueOf(df.format(output*100));
+
       
         return output;
 
