@@ -39,8 +39,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 import javax.inject.Inject;
 
@@ -428,9 +431,7 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
                         public void run() {
                             Log.println(Log.DEBUG, "onset time: ", Double.toString(onsetTime));
                             Log.println(Log.DEBUG, "unix epoch millisec:", String.format("%.12f", onsetAbsoluteTime));
-                            if(isPlaying){
-                                beatOnsets.add(onsetAbsoluteTime);
-                            }
+                            beatOnsets.add(onsetAbsoluteTime);
                             Log.println(Log.DEBUG, "onset salience: ", Double.toString(sValue));
                             onsetTextView.setText(String.format("onset time: %.2f", onsetTime));
                             if (prevOnsetTime == -1 || prevOnsetTime >= onsetTime) { // account for looping audio
@@ -513,29 +514,12 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
                     if (cut != -1) {
                         selectedFilePath = selectedFilePath.substring(cut + 1);
                     }
-                    // workaround for reading local files from physical device
-//                    if (selectedFilePath.equals("/document/audio:437")) {
-//                        filename = "kick_80.wav";
-//                    } else if (selectedFilePath.equals("/document/audio:438")) {
-//                        filename = "kick_100.wav";
-//                    } else if (selectedFilePath.equals("/document/audio:436")) {
-//                        filename = "kick_120.wav";
-//                    }
                     filename = selectedFilePath;
                     Log.println(Log.DEBUG, "selected file path: ", selectedFilePath);
                 }
                 break;
         }
         super.onActivityResult(requestCode, resultCode, data);
-    }
-
-    private String getRealPathFromURI(Uri contentUri) { // code block from some stackoverflow comment --- didn't work
-        String[] proj = { MediaStore.Images.Media.DATA };
-        CursorLoader loader = new CursorLoader(getApplicationContext(), contentUri, proj, null, null, null);
-        Cursor cursor = loader.loadInBackground();
-        int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-        cursor.moveToFirst();
-        return cursor.getString(column_index);
     }
 
     public void triggerPopup(View view, ArrayList<Double> beatOnsets, ArrayList<Double> stepOnsets){
@@ -601,62 +585,102 @@ public class  MainActivity extends AppCompatActivity implements ApplicationMvp.V
         // Finally, show the popup window at the center location of root relative layout
         mPopupWindow.showAtLocation(activityMainLayout, Gravity.CENTER,0,0);
     }
-    public String calculateResults(ArrayList<Double> stepOnsets, ArrayList<Double> beatOnsets){
+    public String calculateResults(ArrayList<Double> stepOnsets, ArrayList<Double> beatOnsets) {
 //        alignment of first step and beat to account for latency issues
         double diff = Math.abs(stepOnsets.get(0) - beatOnsets.get(0));
         for(int k = 0; k < stepOnsets.size(); k++) {
             stepOnsets.set(k, stepOnsets.get(k) - diff);
         }
 
-//        find first beatOnset closest to step
-        int firstOnset = 0;
-        for(int j = 0; j < beatOnsets.size(); j++){
-            if(beatOnsets.get(j) > stepOnsets.get(0)){
-                firstOnset = j-1;
-                break;
+        Map<String, Integer> offsets = setOffsets(stepOnsets, beatOnsets);
+        int sStart = offsets.get("stepFirst");
+        int bStart = offsets.get("beatFirst");
+        int sEnd = offsets.get("stepLast");
+        int bEnd = offsets.get("beatLast");
+
+        int bCurrent = bStart;
+        int sCurrent = sStart;
+        double totalScore = 0;
+        Log.println(Log.DEBUG, "score_debug ", String.format("bCurrent, bEnd: %d, %d", bCurrent, bEnd));
+        while (bCurrent < bEnd - 1) {
+            Log.println(Log.DEBUG, "score_debug ", String.format("beatOnset: %.12f", beatOnsets.get(bCurrent)));
+            Log.println(Log.DEBUG, "score_debug ", String.format("stepOnset: %.12f", stepOnsets.get(sCurrent)));
+            Log.println(Log.DEBUG, "score_debug ", String.format("beatOnset+1: %.12f", beatOnsets.get(bCurrent+1)));
+            while (stepOnsets.get(sCurrent) >= beatOnsets.get(bCurrent) &&
+            stepOnsets.get(sCurrent) <= beatOnsets.get(bCurrent + 1)) {
+                double score = new Synchro(stepOnsets.get(sCurrent),
+                        beatOnsets.get(bCurrent), beatOnsets.get(bCurrent + 1)).calculateScore();
+                Log.println(Log.DEBUG, "score_debug ", String.format("score: %.12f%n", score));
+                totalScore += score;
+                sCurrent++;
             }
+            bCurrent++;
         }
-        int currentOnset = firstOnset;
-        double total = 0;
-        for(int i = 0; i < stepOnsets.size(); i++){
 
-            Double step = stepOnsets.get(i);
-            if(currentOnset < beatOnsets.size()) {
-                Double beatBeforeTimestamp = beatOnsets.get(currentOnset);
-                Double beatAfterTimestamp = beatOnsets.get(currentOnset + 1);
-                while (!(step >= beatBeforeTimestamp && step <= beatAfterTimestamp) && currentOnset + 1< beatOnsets.size() - 1) {
-
-                    currentOnset += 1;
-                    if (currentOnset + 1 >= beatOnsets.size()) {
-                        ArrayList<Double> stepIntervals = new ArrayList<>();
-                        for (int l = 0; l < stepOnsets.size() - 1; l++) {
-                            stepIntervals.add((stepOnsets.get(l + 1) - stepOnsets.get(l)));
-                        }
-                        Double totalAvg = total / stepOnsets.size();
-                        Double stdDev = sd(stepIntervals);
-                        Double mean = mean(stepIntervals);
-                        Double cv = (stdDev / mean) * 100;
-                        return String.format("Score: %.2f%%\n CV: %.2f", totalAvg, cv);
-
-                    }
-                    beatBeforeTimestamp = beatOnsets.get(currentOnset);
-                    beatAfterTimestamp = beatOnsets.get(currentOnset + 1);
-                    double score = new Synchro(step, beatBeforeTimestamp, beatAfterTimestamp).calculateScore();
-                    total += score;
-                    Log.println(Log.DEBUG, "score: ", Double.toString(score));
-                }
-            }
-        }
+        // interval calculation for CV
         ArrayList<Double> stepIntervals = new ArrayList<>();
         for(int l = 0; l < stepOnsets.size() - 1; l++){
             stepIntervals.add(stepOnsets.get(l + 1) - stepOnsets.get(l));
         }
-        Double totalAvg = total/stepOnsets.size();
+
+        // calculate score and CV
+        Double totalAvg = totalScore/(sEnd-sStart);
+        Log.println(Log.DEBUG, "score_debug ", String.format("totalScore: %.12f%n", totalScore));
+        Log.println(Log.DEBUG, "score_debug ", String.format("total number of scores: %d%n", (sEnd - sStart)));
         Double stdDev = sd(stepIntervals);
         Double mean = mean(stepIntervals);
-        Double cv = (stdDev / mean )* 100;
+        Double cv = (stdDev / mean) * 100;
         return String.format("Score: %.2f%%\n CV: %.2f" , totalAvg, cv);
     }
+
+    // takes step and beat timing arrays as inputs and returns offsets of overlapping timings
+    public Map<String, Integer> setOffsets(ArrayList<Double> stepOnsets, ArrayList<Double> beatOnsets) {
+        Map<String, Integer> offsetMap = new HashMap<>();
+        offsetMap.put("stepFirst", 0);
+        offsetMap.put("beatFirst", 0);
+        offsetMap.put("stepLast", stepOnsets.size()-1);
+        offsetMap.put("beatLast", beatOnsets.size()-1);
+        // determine start offsets
+        if (beatOnsets.get(0) < stepOnsets.get(0)) { // first beat before first step
+            for (int i = 0; i < beatOnsets.size(); i++) {
+                if (stepOnsets.get(0) > beatOnsets.get(i)) {
+                    offsetMap.put("beatFirst", i);
+                    break;
+                }
+            }
+        } else if (beatOnsets.get(0) > stepOnsets.get(0)) { // first step before first beat
+            for (int i = 0; i < stepOnsets.size(); i++) {
+                if (stepOnsets.get(i) > beatOnsets.get(0)) {
+                    offsetMap.put("stepFirst", i);
+                    break;
+                }
+            }
+        }
+
+        // determine end offsets
+        if (beatOnsets.get(beatOnsets.size() - 1) < stepOnsets.get(stepOnsets.size() - 1)) { // music stopped first
+            for (int i = 0; i < stepOnsets.size(); i++) {
+//                Log.println(Log.DEBUG, "weird_debug:", String.format("beat time, step time: %f, %f%n",
+//                        beatOnsets.get(beatOnsets.size()-1), stepOnsets.get(i)));
+                if (stepOnsets.get(i) > beatOnsets.get(beatOnsets.size()-1)) {
+//                    Log.println(Log.DEBUG, "weird_debug:", String.format("step time > beat time: %f, %f%n",
+//                            stepOnsets.get(i), beatOnsets.get(beatOnsets.size()-1)));
+                    offsetMap.put("stepLast", i-1); // every step must have a beat on/after it
+                    break;
+                }
+            }
+        } else if (beatOnsets.get(beatOnsets.size() - 1) > stepOnsets.get(stepOnsets.size() - 1)) { // steps stopped first
+            for (int i = 0; i < beatOnsets.size(); i++) {
+                if (beatOnsets.get(i) > stepOnsets.get(stepOnsets.size()-1)) {
+                    offsetMap.put("beatLast", i);
+                    break;
+                }
+            }
+        }
+
+        return offsetMap;
+    }
+
     public static double mean (ArrayList<Double> table)
     {
         int total = 0;
